@@ -5,228 +5,132 @@
 void ofApp::setup(){
 	ofSetWindowTitle("Weather App");
 	ofBackground(30, 33, 40);
-	ofSetVerticalSync(true);
 
-	bodyFont.load(OF_TTF_SANS, 16);
+	font.load(OF_TTF_SANS, 16);
 	bigFont.load(OF_TTF_SANS, 36);
 
-	// Get told whenever a background network request finishes.
+	searchBox.set(40, 40, 400, 44);
+	searchButton.set(450, 40, 110, 44);
+
+	// Tell openFrameworks to call urlResponse() when a web reply arrives.
 	ofRegisterURLNotification(this);
 
-	if(WEATHER_API_KEY == "YOUR_WEATHERAPI_KEY_HERE"){
-		statusMessage = "Add your WeatherAPI key to src/Secrets.h before searching.";
-		statusIsError = true;
-	}else{
-		statusMessage = "Type a location and press Enter to search.";
-		statusIsError = false;
-	}
-}
-
-//--------------------------------------------------------------
-void ofApp::update(){
-	// Nothing to do here - network replies arrive automatically through
-	// urlResponse() below.
+	message = "Type a place and press Enter.";
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
-	// --- search box ---
-	ofRectangle box = getSearchBoxBounds();
+	// Search box and button
 	ofSetColor(45, 48, 56);
-	ofDrawRectangle(box);
+	ofDrawRectangle(searchBox);
+	ofSetColor(searchText.empty() ? 120 : 230);
+	font.drawString(searchText.empty() ? "Enter a city..." : searchText, 52, 68);
 
-	ofSetColor(searchText.empty() ? ofColor(120) : ofColor(230));
-	std::string shown = searchText.empty() ? "Enter a city..." : searchText;
-	bodyFont.drawString(shown, box.x + 12, box.y + box.height / 2 + 6);
-
-	// --- search button ---
-	ofRectangle button = getSearchButtonBounds();
 	ofSetColor(70, 130, 220);
-	ofDrawRectangle(button);
+	ofDrawRectangle(searchButton);
 	ofSetColor(255);
-	bodyFont.drawString("Search", button.x + 20, button.y + button.height / 2 + 6);
+	font.drawString("Search", 470, 68);
 
-	// --- status / error message ---
-	ofSetColor(statusIsError ? ofColor(220, 100, 100) : ofColor(170));
-	bodyFont.drawString(statusMessage, 40, box.y + box.height + 40);
+	// Message under the box (red if it is an error)
+	if(messageIsError){
+		ofSetColor(220, 100, 100);
+	}else{
+		ofSetColor(170);
+	}
+	font.drawString(message, 40, 125);
 
-	// --- weather result ---
+	// Weather result
 	if(hasResult){
 		ofSetColor(255);
-		bigFont.drawString(resultLocation, 40, 220);
-
-		ofSetColor(255);
-		std::string tempLine = ofToString(resultTempC, 1) + " C   (" + resultCondition + ")";
-		bodyFont.drawString(tempLine, 40, 260);
+		bigFont.drawString(location, 40, 220);
+		font.drawString(ofToString(tempC, 1) + " C   (" + condition + ")", 40, 260);
 
 		ofSetColor(180);
-		std::string feelsLine = "Feels like " + ofToString(resultFeelsLikeC, 1) + " C";
-		bodyFont.drawString(feelsLine, 40, 290);
-
-		std::string humidityLine = "Humidity: " + ofToString(resultHumidity) + "%";
-		bodyFont.drawString(humidityLine, 40, 315);
-
-		std::string windLine = "Wind: " + ofToString(resultWindKph, 1) + " kph";
-		bodyFont.drawString(windLine, 40, 340);
+		font.drawString("Feels like " + ofToString(feelsLikeC, 1) + " C", 40, 290);
+		font.drawString("Humidity: " + ofToString(humidity) + "%", 40, 315);
+		font.drawString("Wind: " + ofToString(windKph, 1) + " kph", 40, 340);
 	}
-}
-
-//--------------------------------------------------------------
-ofRectangle ofApp::getSearchBoxBounds() const{
-	return ofRectangle(40, 40, 400, 44);
-}
-
-//--------------------------------------------------------------
-ofRectangle ofApp::getSearchButtonBounds() const{
-	ofRectangle box = getSearchBoxBounds();
-	return ofRectangle(box.getRight() + 10, box.y, 110, 44);
 }
 
 //--------------------------------------------------------------
 void ofApp::searchWeather(){
-	if(WEATHER_API_KEY == "YOUR_WEATHERAPI_KEY_HERE"){
-		statusMessage = "Add your WeatherAPI key to src/Secrets.h before searching.";
-		statusIsError = true;
-		return;
-	}
 	if(searchText.empty()){
-		statusMessage = "Type a location first.";
-		statusIsError = true;
+		message = "Type a location first.";
+		messageIsError = true;
 		return;
 	}
 
-	statusMessage = "Searching for \"" + searchText + "\"...";
-	statusIsError = false;
+	message = "Searching...";
+	messageIsError = false;
 	hasResult = false;
 
-	// Build the API request URL. "q" is the location the user typed.
-	std::string url = "https://api.weatherapi.com/v1/current.json?key=" + WEATHER_API_KEY + "&q=" + searchText;
+	// Build the web address from our key and the place typed (spaces become %20).
+	std::string place = searchText;
+	ofStringReplace(place, " ", "%20");
+	std::string url = "https://api.weatherapi.com/v1/current.json?key=" + WEATHER_API_KEY + "&q=" + place;
 
-	// Cancel any search that's still in flight so an old, slow reply can't
-	// overwrite a newer one.
-	if(pendingRequestId != -1){
-		ofRemoveURLRequest(pendingRequestId);
-	}
-	pendingRequestId = ofLoadURLAsync(url, "weather");
+	// "Async" means it runs in the background, so the window does not freeze.
+	ofLoadURLAsync(url, "weather");
 }
 
 //--------------------------------------------------------------
 void ofApp::urlResponse(ofHttpResponse & response){
-	// Ignore replies to requests we've already moved on from.
-	if(response.request.getId() != pendingRequestId){
+	messageIsError = true;
+	hasResult = false;
+
+	// The website tells us what happened with a status number.
+	if(response.status == 400){
+		message = "Location not found. Check the spelling.";
 		return;
 	}
-	pendingRequestId = -1;
-
+	if(response.status == 401){
+		message = "The API key is missing or wrong.";
+		return;
+	}
 	if(response.status != 200){
-		hasResult = false;
-		statusIsError = true;
-		if(response.status == 400){
-			statusMessage = "Location not found. Check the spelling and try again.";
-		}else if(response.status == 401){
-			statusMessage = "The WeatherAPI key is missing or invalid.";
-		}else{
-			statusMessage = "Something went wrong (status " + ofToString(response.status) + "). Try again.";
-		}
+		message = "Something went wrong. Try again.";
 		return;
 	}
 
-	// Parse the JSON reply. ofJson is openFrameworks' built-in JSON type.
+	// 200 means success. The reply is JSON (text with labels), so read it.
 	ofJson json;
 	try{
 		json = ofJson::parse(response.data.getText());
 	}catch(std::exception &){
-		hasResult = false;
-		statusIsError = true;
-		statusMessage = "Couldn't understand the response from the API.";
+		message = "Could not read the weather data.";
 		return;
 	}
 
-	// Pull out the fields we care about. Using .value("key", fallback)
-	// means a field that's missing just falls back safely instead of
-	// crashing the app.
-	std::string name = json["location"].value("name", std::string(""));
-	std::string country = json["location"].value("country", std::string(""));
-	resultLocation = name + (country.empty() ? "" : (", " + country));
+	// .value("label", backup) gives a safe backup if a label is missing.
+	location = json["location"].value("name", std::string("")) + ", " + json["location"].value("country", std::string(""));
+	condition = json["current"]["condition"].value("text", std::string("Unknown"));
+	tempC = json["current"].value("temp_c", 0.0);
+	feelsLikeC = json["current"].value("feelslike_c", 0.0);
+	humidity = json["current"].value("humidity", 0);
+	windKph = json["current"].value("wind_kph", 0.0);
 
-	resultCondition = json["current"]["condition"].value("text", std::string("Unknown"));
-	resultTempC = json["current"].value("temp_c", 0.0);
-	resultFeelsLikeC = json["current"].value("feelslike_c", 0.0);
-	resultHumidity = json["current"].value("humidity", 0);
-	resultWindKph = json["current"].value("wind_kph", 0.0);
-
+	messageIsError = false;
 	hasResult = true;
-	statusIsError = false;
-	statusMessage = "Showing weather for \"" + searchText + "\".";
+	message = "Showing weather for \"" + searchText + "\".";
 }
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key){
 	if(key == OF_KEY_RETURN){
 		searchWeather();
-		return;
-	}
-	if(key == OF_KEY_BACKSPACE){
+	}else if(key == OF_KEY_BACKSPACE){
 		if(!searchText.empty()){
 			searchText.pop_back();
 		}
-		return;
-	}
-	// Only accept normal printable characters (letters, numbers, spaces,
-	// commas, etc.) so control keys don't end up in the search text.
-	if(key >= 32 && key <= 126 && searchText.size() < 60){
+	}else if(key >= 32 && key <= 126 && searchText.size() < 60){
+		// A normal letter, number or space: add it to the text.
 		searchText += static_cast<char>(key);
 	}
 }
 
 //--------------------------------------------------------------
-void ofApp::keyReleased(int key){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseMoved(int x, int y ){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseDragged(int x, int y, int button){
-
-}
-
-//--------------------------------------------------------------
 void ofApp::mousePressed(int x, int y, int button){
-	if(getSearchButtonBounds().inside(x, y)){
+	if(searchButton.inside(x, y)){
 		searchWeather();
 	}
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseReleased(int x, int y, int button){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseEntered(int x, int y){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseExited(int x, int y){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::windowResized(int w, int h){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::gotMessage(ofMessage msg){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::dragEvent(ofDragInfo dragInfo){
-
 }
