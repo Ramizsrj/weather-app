@@ -31,3 +31,7 @@ Everything lives in `src/ofApp.cpp` to keep the code easy to follow:
   reads the JSON and either fills in the result fields or sets an error
   message
 - `draw()` just displays whatever is currently stored in those fields
+
+## Documents
+
+The `docs` folder has the development document and the video script.
